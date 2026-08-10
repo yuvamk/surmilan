@@ -16,10 +16,24 @@ function fmt(ms) {
 }
 
 export function YoutubePlayer({ onTrackChange }) {
-  const [activeTrack, setActiveTrack] = useState(DEMO)
+  // Load track and history state from localStorage to prevent resetting on page reload
+  const [activeTrack, setActiveTrack] = useState(() => {
+    const stored = localStorage.getItem('sur-milan-active-track')
+    return stored ? JSON.parse(stored) : DEMO
+  })
+  
+  // Default to paused on refresh to comply with browser autoplay security policies
   const [isPaused, setIsPaused] = useState(true)
-  const [progress, setProgress] = useState(0)
-  const [duration, setDuration] = useState(DEMO.duration_ms)
+  
+  const [progress, setProgress] = useState(() => {
+    const stored = localStorage.getItem('sur-milan-progress')
+    return stored ? Number(stored) : 0
+  })
+  
+  const [duration, setDuration] = useState(() => {
+    const stored = localStorage.getItem('sur-milan-duration')
+    return stored ? Number(stored) : DEMO.duration_ms
+  })
   
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
@@ -28,13 +42,34 @@ export function YoutubePlayer({ onTrackChange }) {
   const [showSearch, setShowSearch] = useState(false)
   
   const [queue, setQueue] = useState([])
-  const [history, setHistory] = useState([])
+  const [history, setHistory] = useState(() => {
+    const stored = localStorage.getItem('sur-milan-history')
+    return stored ? JSON.parse(stored) : []
+  })
 
   const playerRef = useRef(null)
   const progressIntervalRef = useRef(null)
+  const isPlayingStartedRef = useRef(false)
   const iframeContainerId = 'yt-player-iframe'
 
-  // Initialize YT Player on mount and track changes
+  // Persist state in localStorage on changes
+  useEffect(() => {
+    localStorage.setItem('sur-milan-active-track', JSON.stringify(activeTrack))
+  }, [activeTrack])
+
+  useEffect(() => {
+    localStorage.setItem('sur-milan-progress', progress.toString())
+  }, [progress])
+
+  useEffect(() => {
+    localStorage.setItem('sur-milan-duration', duration.toString())
+  }, [duration])
+
+  useEffect(() => {
+    localStorage.setItem('sur-milan-history', JSON.stringify(history))
+  }, [history])
+
+  // Initialize YT Player on mount and activeTrack changes
   useEffect(() => {
     let active = true
     let ytPlayer = null
@@ -65,16 +100,16 @@ export function YoutubePlayer({ onTrackChange }) {
           showinfo: 0,
           modestbranding: 1,
           origin: window.location.origin,
+          // Start exactly at the saved progress offset (converted to seconds)
+          start: Math.floor(progress / 1000)
         },
         events: {
           onReady: () => {
             if (!active) return
             playerRef.current = ytPlayer
-            // Set initial duration
             const trackDur = ytPlayer.getDuration() * 1000
             if (trackDur > 0) setDuration(trackDur)
             
-            // Set initial play/pause state
             if (!isPaused) {
               ytPlayer.playVideo()
             }
@@ -86,6 +121,7 @@ export function YoutubePlayer({ onTrackChange }) {
             if (state === YT.PlayerState.PLAYING) {
               setIsPaused(false)
               setDuration(ytPlayer.getDuration() * 1000)
+              isPlayingStartedRef.current = true
               startProgressTicker()
             } else if (state === YT.PlayerState.PAUSED) {
               setIsPaused(true)
@@ -101,9 +137,16 @@ export function YoutubePlayer({ onTrackChange }) {
     })
 
     // Fetch related recommendations to build autoplay list
-    getRecommendations(activeTrack.id).then((recs) => {
-      if (active && recs.length > 0) {
-        setQueue(recs)
+    getRecommendations(activeTrack.id, activeTrack.title, activeTrack.artist).then((recs) => {
+      if (active) {
+        if (recs.length > 0) {
+          setQueue(recs)
+        } else {
+          // If recommendation endpoint fails, build a fallback queue using the search results list
+          console.log('[Autoplay] Recommendation list empty, using results fallback queue')
+          const searchBackup = results.filter(t => t.id !== activeTrack.id)
+          if (searchBackup.length > 0) setQueue(searchBackup)
+        }
       }
     })
 
@@ -150,6 +193,17 @@ export function YoutubePlayer({ onTrackChange }) {
       setActiveTrack(nextSong)
       setIsPaused(false)
       setProgress(0)
+    } else {
+      // If queue is completely dry, query new recommendations for current artist to keep playing
+      const freshRecs = await getRecommendations(activeTrack.id, activeTrack.title, activeTrack.artist)
+      if (freshRecs.length > 0) {
+        const nextSong = freshRecs[0]
+        setHistory(prev => [...prev, activeTrack])
+        setQueue(freshRecs.slice(1))
+        setActiveTrack(nextSong)
+        setIsPaused(false)
+        setProgress(0)
+      }
     }
   }
 
@@ -158,7 +212,6 @@ export function YoutubePlayer({ onTrackChange }) {
     if (history.length > 0) {
       const prevSong = history[history.length - 1]
       setHistory(prev => prev.slice(0, -1))
-      // Prepend current to queue
       setQueue(prev => [activeTrack, ...prev])
       setActiveTrack(prevSong)
       setIsPaused(false)
@@ -277,7 +330,7 @@ export function YoutubePlayer({ onTrackChange }) {
                 <button key={t.id} className="search-result" onClick={() => handlePlaySong(t)}>
                   <img src={t.art || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=80&q=80'} alt="" />
                   <div className="sr-info">
-                    <strong>{t.title}</strong>
+                    <strong>{t.name || t.title}</strong>
                     <span>{t.artist}</span>
                   </div>
                   <span className="sr-duration">{fmt(t.duration_ms)}</span>
@@ -305,7 +358,7 @@ export function YoutubePlayer({ onTrackChange }) {
           <button className="round-btn play-btn" onClick={handleToggle} aria-label={isPaused ? 'Play' : 'Pause'}>
             {isPaused ? <Play size={15} fill="currentColor"/> : <Pause size={15} fill="currentColor"/>}
           </button>
-          <button className="round-btn" onClick={handleNext} disabled={queue.length === 0} aria-label="Next">
+          <button className="round-btn" onClick={handleNext} disabled={queue.length === 0 && history.length === 0} aria-label="Next">
             <SkipForward size={14}/>
           </button>
         </div>
