@@ -17,9 +17,37 @@
 .top-actions,.connect-row{display:flex;gap:12px;align-items:center}
 .presence{font:11px 'DM Mono';padding:10px 14px;border:1px solid #ffffff44;border-radius:99px;background:#14412c55}
 .presence i,.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#cfff52;box-shadow:0 0 10px #cfff52;margin-right:7px}
-.join-btn,.service,.setup-link{border:0;cursor:pointer;font:500 13px 'DM Sans';display:flex;align-items:center;gap:7px}
-.join-btn{background:#f9e8b6;color:#244c3a;border-radius:99px;padding:11px 16px}
-.setup-link{background:none;color:white}
+.status-badge{
+  font:11px 'DM Mono';padding:10px 14px;
+  border:1px solid #ffffff44;border-radius:99px;
+  background:#14412c55;color:#ffffffbc;
+  display:flex;align-items:center;gap:8px;
+}
+.status-badge.active{
+  border-color:#cfff5277;
+  color:#white;
+}
+
+.status-hero-badge {
+  font:500 13px 'DM Sans';
+  background:#f9e8b6;color:#244c3a;
+  border-radius:99px;padding:12px 20px;
+  display:flex;align-items:center;gap:8px;
+  box-shadow:0 6px 20px rgba(0,0,0,0.15);
+}
+
+.pulse-dot {
+  display:inline-block;width:8px;height:8px;
+  border-radius:50%;background:#cfff52;
+  box-shadow:0 0 10px #cfff52;
+  animation:pulse 1.4s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { transform:scale(0.85); opacity:0.6 }
+  50% { transform:scale(1.2); opacity:1 }
+  100% { transform:scale(0.85); opacity:0.6 }
+}
 
 /* ── Hero ───────────────────────────────────────────────────────────────── */
 .hero{flex:1;color:white;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px 115px}

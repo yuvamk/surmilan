@@ -7,6 +7,7 @@ export function useMusicMatch() {
   const [error, setError] = useState('')
   const [online, setOnline] = useState(0)
 
+  // 1. Maintain lobby presence and count online listeners
   useEffect(() => {
     if (!supabase) return
     const channel = supabase.channel('sur-milan-lobby', { config: { presence: { key: crypto.randomUUID() } } })
@@ -15,18 +16,34 @@ export function useMusicMatch() {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  const match = async () => {
-    try {
-      setError('')
-      if (!track) throw new Error('Select and play a song in the player first.')
-      await updateListeningPresence(track)
-      const found = await findMatch(track.id)
-      if (found) setRoom(found)
-      else setError('You are in the listening queue. We’ll pair you when a song twin arrives.')
-    } catch (e) {
-      setError(e.message)
-    }
-  }
+  // 2. Fully Automatic Matching: Polls for matches in background when a track is active
+  useEffect(() => {
+    if (!track || room) return
 
-  return { track, setTrack, room, setRoom, error, online, match }
+    const runMatch = async () => {
+      try {
+        setError('')
+        // Post presence
+        await updateListeningPresence(track)
+        // Check for song twins
+        const found = await findMatch(track.id)
+        if (found) {
+          setRoom(found)
+        }
+      } catch (e) {
+        console.error('[Auto Match] Error:', e)
+        // Don't interrupt user play, just log or set transient match error if critical
+      }
+    }
+
+    // Run matching immediately
+    runMatch()
+
+    // Poll matching state every 8 seconds
+    const interval = setInterval(runMatch, 8000)
+
+    return () => clearInterval(interval)
+  }, [track, room])
+
+  return { track, setTrack, room, setRoom, error, online }
 }

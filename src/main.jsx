@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { useEffect, useState } from 'react'
-import { Send, Sparkles, X, ArrowUpRight, Flag, LogOut, Circle, CircleHelp } from 'lucide-react'
+import { Send, Sparkles, X, ArrowUpRight, Flag, LogOut, Circle } from 'lucide-react'
 import { leaveRoom, reportRoom, reserveNextMatch, supabase, getOrCreateGuestUser } from './lib/supabase'
 import { useMusicMatch } from './useMusicMatch'
 import { YoutubePlayer } from './YoutubePlayer'
@@ -10,7 +10,6 @@ const SHAYARI = 'तेरे सुरों में कहीं, मेर�
 
 function App() {
   const music = useMusicMatch()
-  const [showSetup, setShowSetup] = useState(false)
   const [nextRoom, setNextRoom] = useState(null)
 
   const reserveNext = async (room) => {
@@ -20,6 +19,13 @@ function App() {
       if (next) setNextRoom(next)
     } catch { /* silently fall back to matching queue */ }
   }
+
+  // Get current state labels
+  const matchStatus = !music.track 
+    ? 'Play a song to match' 
+    : music.room 
+      ? 'Matched!' 
+      : 'Matching automatically...'
 
   return (
     <main className="stage">
@@ -33,10 +39,10 @@ function App() {
         </a>
         <div className="top-actions">
           <span className="presence"><i /> {music.online || '—'} listening now</span>
-          <button className="setup-link" onClick={() => setShowSetup(true)}><CircleHelp size={16}/> Setup</button>
-          <button className="join-btn" onClick={music.match}>
-            Find your song twin <ArrowUpRight size={15}/>
-          </button>
+          <div className={`status-badge ${music.track && !music.room ? 'active' : ''}`}>
+            {music.track && !music.room && <span className="pulse-dot" />}
+            {matchStatus}
+          </div>
         </div>
       </header>
 
@@ -45,12 +51,19 @@ function App() {
         <h1>Meet in the<br/><em>same song.</em></h1>
         <p className="shayari">{SHAYARI}</p>
         <p className="translation">Somewhere in your music, my heart begins to smile.</p>
+        
         <div className="connect-row">
-          <button className="join-btn hero-match" onClick={music.match}>
-            Find your song twin <ArrowUpRight size={15}/>
-          </button>
+          <div className={`status-hero-badge ${music.track && !music.room ? 'active' : ''}`}>
+            {music.track && !music.room && <span className="pulse-dot" />}
+            <strong>{matchStatus}</strong>
+          </div>
         </div>
-        <p className="hint">{music.error || 'Search for any song in the player below, play it, and find your twin.'}</p>
+        
+        <p className="hint">
+          {!music.track 
+            ? 'Search for any song in the player below, play it, and we will automatically find your song twin.' 
+            : 'We are searching for someone listening to the very same song. Hang tight!'}
+        </p>
       </section>
 
       <YoutubePlayer onTrackChange={t => music.setTrack(t)} />
@@ -70,28 +83,7 @@ function App() {
           end={() => { music.setRoom(nextRoom); setNextRoom(null) }}
         />
       )}
-      {showSetup && <SetupOverlay close={() => setShowSetup(false)} />}
     </main>
-  )
-}
-
-function SetupOverlay({ close }) {
-  return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="YouTube setup">
-      <div className="setup-card">
-        <button className="close-setup" onClick={close}><X size={20}/></button>
-        <p className="eyebrow">HOW IT WORKS</p>
-        <h2>Search, Play &<br/>Meet stragers</h2>
-        <ol>
-          <li>Type any track name or artist into the player's search bar.</li>
-          <li>Click to play the song. Our player stream the full audio directly.</li>
-          <li>Click the <b>Find your song twin</b> button to start matching.</li>
-          <li>If another user on the site is listening to the same song, you'll be paired in a private 6-minute chat room.</li>
-        </ol>
-        <p className="setup-note">No Spotify account, YouTube login, or whitelist registration is required. Anyone can listen and chat instantly.</p>
-        <button className="join-btn" onClick={close}>Let's go <ArrowUpRight size={15}/></button>
-      </div>
-    </div>
   )
 }
 
