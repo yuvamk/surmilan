@@ -24,13 +24,47 @@ export async function getSpotifyTrack(accessToken) {
   return { id: data.item.id, title: data.item.name, artist: data.item.artists.map(a => a.name).join(' · '), art: data.item.album?.images?.[1]?.url || data.item.album?.images?.[0]?.url }
 }
 
+let guestUser = null
+
+export function getOrCreateGuestUser() {
+  if (guestUser) return guestUser
+  let stored = localStorage.getItem('sur-milan-guest-user')
+  if (stored) {
+    try {
+      guestUser = JSON.parse(stored)
+      return guestUser
+    } catch {}
+  }
+  const id = crypto.randomUUID()
+  const guestName = `Guest ${Math.floor(1000 + Math.random() * 9000)}`
+  guestUser = { id, display_name: guestName }
+  localStorage.setItem('sur-milan-guest-user', JSON.stringify(guestUser))
+  return guestUser
+}
+
 export async function updateListeningPresence(track) {
+  if (!supabase) return
+  let userId, displayName
+  
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Connect Spotify first.')
-  const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'music lover'
-  const profile = await supabase.from('profiles').upsert({ id: user.id, display_name: displayName })
+  if (user) {
+    userId = user.id
+    displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'music lover'
+  } else {
+    const guest = getOrCreateGuestUser()
+    userId = guest.id
+    displayName = guest.display_name
+  }
+
+  const profile = await supabase.from('profiles').upsert({ id: userId, display_name: displayName })
   if (profile.error) throw profile.error
-  const { error } = await supabase.from('listening_presence').upsert({ user_id: user.id, provider: 'spotify', track_id: track.id, updated_at: new Date().toISOString() })
+
+  const { error } = await supabase.from('listening_presence').upsert({ 
+    user_id: userId, 
+    provider: 'youtube', 
+    track_id: track.id, 
+    updated_at: new Date().toISOString() 
+  })
   if (error) throw error
 }
 
