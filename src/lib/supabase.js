@@ -79,13 +79,41 @@ export async function reportRoom(roomId, reason = 'User report') {
 }
 
 export async function findMatch(trackId) {
-  const { data, error } = await supabase.rpc('match_listener', { p_track_id: trackId })
+  let userId, displayName
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    userId = user.id
+    displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'music lover'
+  } else {
+    const guest = getOrCreateGuestUser()
+    userId = guest.id
+    displayName = guest.display_name
+  }
+
+  const { data, error } = await supabase.rpc('match_listener', { 
+    p_track_id: trackId,
+    p_user_id: userId,
+    p_display_name: displayName
+  })
   if (error) throw error
   return data?.[0] || null
 }
 
 export async function reserveNextMatch(roomId, trackId) {
-  const { data, error } = await supabase.rpc('reserve_next_match', { p_room_id: roomId, p_track_id: trackId })
+  let userId
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    userId = user.id
+  } else {
+    const guest = getOrCreateGuestUser()
+    userId = guest.id
+  }
+
+  const { data, error } = await supabase.rpc('reserve_next_match', { 
+    p_room_id: roomId, 
+    p_track_id: trackId,
+    p_user_id: userId
+  })
   if (error) throw error
   return data?.[0] || null
 }
