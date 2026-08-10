@@ -215,7 +215,7 @@ export function YoutubePlayer({ onTrackChange }) {
         setSearching(false)
         setSearchError('Search failed. Check your internet connection.')
       }
-    }, 400)
+    }, 250)
 
     return () => {
       clearTimeout(delayId)

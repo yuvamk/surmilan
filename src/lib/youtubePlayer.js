@@ -2,30 +2,50 @@ const INSTANCES = [
   'https://inv.tux.pizza',
   'https://yewtu.be',
   'https://invidious.nerdvpn.de',
-  'https://inv.vern.cc'
+  'https://inv.vern.cc',
+  'https://invidious.no-logs.com'
 ]
 
-// Helper to query Invidious instances with a fallback strategy
-async function fetchFromInvidious(path) {
-  for (const instance of INSTANCES) {
-    try {
-      const url = `${instance}${path}`
-      const res = await fetch(url)
-      if (res.ok) {
-        return await res.json()
-      }
-    } catch (e) {
-      console.warn(`[Invidious] Instance ${instance} failed for ${path}:`, e)
-    }
+// Helper to fetch from a single instance with a strict timeout
+async function fetchWithTimeout(url, timeoutMs = 2000) {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(id)
+    if (!res.ok) throw new Error(`HTTP error: ${res.status}`)
+    return await res.json()
+  } catch (err) {
+    clearTimeout(id)
+    throw err
   }
-  throw new Error('All Invidious API instances are currently unresponsive. Please try again.')
+}
+
+// Races multiple instances in parallel to get the fastest successful response
+async function raceInvidious(path) {
+  const promises = INSTANCES.map(async (instance) => {
+    try {
+      return await fetchWithTimeout(`${instance}${path}`, 2200)
+    } catch (err) {
+      // Reject so Promise.any knows this one failed
+      throw err
+    }
+  })
+
+  try {
+    // Returns the fastest resolved promise
+    return await Promise.any(promises)
+  } catch (err) {
+    console.error('[Invidious Race] All instances failed or timed out:', err)
+    throw new Error('Search failed. All servers are busy, please try again.')
+  }
 }
 
 export async function searchYoutube(query) {
   if (!query.trim()) return []
   try {
-    const data = await fetchFromInvidious(`/api/v1/search?q=${encodeURIComponent(query)}&type=video`)
-    return (data || []).map(item => ({
+    const data = await raceInvidious(`/api/v1/search?q=${encodeURIComponent(query)}&type=video`)
+    return (data || []).slice(0, 8).map(item => ({
       id: item.videoId,
       title: item.title,
       artist: item.author,
@@ -33,7 +53,7 @@ export async function searchYoutube(query) {
       duration_ms: (item.lengthSeconds || 240) * 1000
     }))
   } catch (e) {
-    console.error('[YouTube Search] Error:', e)
+    console.error('[YouTube Search] Race error:', e)
     throw e
   }
 }
@@ -41,7 +61,7 @@ export async function searchYoutube(query) {
 export async function getRecommendations(videoId) {
   if (!videoId) return []
   try {
-    const data = await fetchFromInvidious(`/api/v1/videos/${videoId}`)
+    const data = await raceInvidious(`/api/v1/videos/${videoId}`)
     const recs = data?.recommendedVideos || []
     return recs.map(item => ({
       id: item.videoId,
@@ -51,7 +71,7 @@ export async function getRecommendations(videoId) {
       duration_ms: (item.lengthSeconds || 240) * 1000
     }))
   } catch (e) {
-    console.error('[YouTube Recs] Error:', e)
+    console.error('[YouTube Recs] Race error:', e)
     return []
   }
 }
@@ -69,7 +89,6 @@ export function loadYoutubeSDK() {
       return
     }
 
-    // Register callback for YouTube script
     const prevCallback = window.onYouTubeIframeAPIReady
     window.onYouTubeIframeAPIReady = () => {
       if (prevCallback) prevCallback()
