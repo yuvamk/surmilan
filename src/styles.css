@@ -25,15 +25,7 @@
 }
 .status-badge.active{
   border-color:#cfff5277;
-  color:#white;
-}
-
-.status-hero-badge {
-  font:500 13px 'DM Sans';
-  background:#f9e8b6;color:#244c3a;
-  border-radius:99px;padding:12px 20px;
-  display:flex;align-items:center;gap:8px;
-  box-shadow:0 6px 20px rgba(0,0,0,0.15);
+  color:white;
 }
 
 .pulse-dot {

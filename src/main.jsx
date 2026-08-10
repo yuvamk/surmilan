@@ -51,13 +51,7 @@ function App() {
         <h1>Meet in the<br/><em>same song.</em></h1>
         <p className="shayari">{SHAYARI}</p>
         <p className="translation">Somewhere in your music, my heart begins to smile.</p>
-        
-        <div className="connect-row">
-          <div className={`status-hero-badge ${music.track && !music.room ? 'active' : ''}`}>
-            {music.track && !music.room && <span className="pulse-dot" />}
-            <strong>{matchStatus}</strong>
-          </div>
-        </div>
+
         
         <p className="hint">
           {!music.track 
