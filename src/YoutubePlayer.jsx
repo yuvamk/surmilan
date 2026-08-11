@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Play, Pause, SkipBack, SkipForward, Search, X, AlertCircle, RefreshCw } from 'lucide-react'
-import { loadYoutubeSDK, searchYoutube, getRecommendations } from './lib/youtubePlayer'
+import { loadYoutubeSDK, searchYoutube, getRecommendations, resolveYoutubeVideoId, LOFI_STATIONS } from './lib/youtubePlayer'
 
 const DEMO = {
   id: 'dQw4w9WgXcQ',
@@ -15,7 +15,7 @@ function fmt(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-export function YoutubePlayer({ onTrackChange }) {
+export function YoutubePlayer({ onTrackChange, progressRef, forcePause, onForcePauseCleared }) {
   // Load track and history state from localStorage to prevent resetting on page reload
   const [activeTrack, setActiveTrack] = useState(() => {
     const stored = localStorage.getItem('sur-milan-active-track')
@@ -48,9 +48,12 @@ export function YoutubePlayer({ onTrackChange }) {
   })
 
   const playerRef = useRef(null)
+  const audioPlayerRef = useRef(null)
   const progressIntervalRef = useRef(null)
   const isPlayingStartedRef = useRef(false)
   const iframeContainerId = 'yt-player-iframe'
+
+  const isAudioStream = Boolean(activeTrack.streamUrl || (activeTrack.previewUrl && !activeTrack.id))
 
   // Persist state in localStorage on changes
   useEffect(() => {
@@ -59,6 +62,9 @@ export function YoutubePlayer({ onTrackChange }) {
 
   useEffect(() => {
     localStorage.setItem('sur-milan-progress', progress.toString())
+    if (progressRef) {
+      progressRef.current = progress
+    }
   }, [progress])
 
   useEffect(() => {
@@ -69,8 +75,28 @@ export function YoutubePlayer({ onTrackChange }) {
     localStorage.setItem('sur-milan-history', JSON.stringify(history))
   }, [history])
 
+  // Handle external take-over pause trigger
+  useEffect(() => {
+    if (forcePause) {
+      if (isAudioStream) {
+        const audio = audioPlayerRef.current
+        if (audio) audio.pause()
+      } else {
+        if (playerRef.current) {
+          try {
+            playerRef.current.pauseVideo()
+          } catch {}
+        }
+      }
+      setIsPaused(true)
+      onForcePauseCleared?.()
+    }
+  }, [forcePause])
+
   // Initialize YT Player on mount and activeTrack changes
   useEffect(() => {
+    if (isAudioStream) return // Skip YT initialization for audio streams
+
     let active = true
     let ytPlayer = null
 
@@ -100,8 +126,8 @@ export function YoutubePlayer({ onTrackChange }) {
           showinfo: 0,
           modestbranding: 1,
           origin: window.location.origin,
-          // Start exactly at the saved progress offset (converted to seconds)
-          start: Math.floor(progress / 1000)
+          // Start exactly at the activeTrack's progress_ms if it exists, otherwise the local progress
+          start: Math.floor((activeTrack.progress_ms || progress) / 1000)
         },
         events: {
           onReady: () => {
@@ -161,19 +187,101 @@ export function YoutubePlayer({ onTrackChange }) {
     }
   }, [activeTrack.id])
 
+  // HTML5 Audio Player logic
+  useEffect(() => {
+    if (!isAudioStream) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause()
+        audioPlayerRef.current.src = ''
+      }
+      return
+    }
+
+    // Stop YouTube player if active
+    if (playerRef.current) {
+      try {
+        playerRef.current.pauseVideo()
+      } catch {}
+    }
+
+    let audio = audioPlayerRef.current
+    if (!audio) {
+      audio = new Audio()
+      audioPlayerRef.current = audio
+    }
+
+    audio.src = activeTrack.streamUrl || activeTrack.previewUrl
+    audio.preload = 'auto'
+
+    // Set duration
+    if (activeTrack.streamUrl) {
+      setDuration(999999999) // Infinite for live stream
+    } else {
+      setDuration(activeTrack.duration_ms || 240000)
+    }
+
+    // Seek to handover offset if specified
+    if (!activeTrack.streamUrl && activeTrack.progress_ms) {
+      audio.currentTime = activeTrack.progress_ms / 1000
+    }
+
+    const onPlay = () => {
+      setIsPaused(false)
+      startProgressTicker()
+    }
+
+    const onPause = () => {
+      setIsPaused(true)
+      stopProgressTicker()
+    }
+
+    const onEnded = async () => {
+      setIsPaused(true)
+      stopProgressTicker()
+      await playNextSuggested()
+    }
+
+    audio.addEventListener('play', onPlay)
+    audio.addEventListener('pause', onPause)
+    audio.addEventListener('ended', onEnded)
+
+    if (!isPaused) {
+      audio.play().catch(err => {
+        console.warn('[HTML5 Audio] Play failed:', err)
+        setIsPaused(true)
+      })
+    } else {
+      audio.pause()
+    }
+
+    return () => {
+      audio.removeEventListener('play', onPlay)
+      audio.removeEventListener('pause', onPause)
+      audio.removeEventListener('ended', onEnded)
+    }
+  }, [activeTrack.id, activeTrack.streamUrl, activeTrack.previewUrl])
+
   // Propagate track and playback state change to main app (for matching logic)
   useEffect(() => {
     onTrackChange?.(activeTrack, !isPaused)
   }, [activeTrack, isPaused])
 
-
   // Progress ticker functions
   const startProgressTicker = () => {
     stopProgressTicker()
     progressIntervalRef.current = setInterval(() => {
-      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-        const timeMs = playerRef.current.getCurrentTime() * 1000
-        setProgress(timeMs)
+      if (isAudioStream) {
+        const audio = audioPlayerRef.current
+        if (audio && !activeTrack.streamUrl) {
+          setProgress(audio.currentTime * 1000)
+        } else if (activeTrack.streamUrl) {
+          setProgress(p => p + 500)
+        }
+      } else {
+        if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+          const timeMs = playerRef.current.getCurrentTime() * 1000
+          setProgress(timeMs)
+        }
       }
     }, 500)
   }
@@ -191,9 +299,7 @@ export function YoutubePlayer({ onTrackChange }) {
       const nextSong = queue[0]
       setHistory(prev => [...prev, activeTrack])
       setQueue(prev => prev.slice(1))
-      setActiveTrack(nextSong)
-      setIsPaused(false)
-      setProgress(0)
+      handlePlaySong(nextSong)
     } else {
       // If queue is completely dry, query new recommendations for current artist to keep playing
       const freshRecs = await getRecommendations(activeTrack.id, activeTrack.title, activeTrack.artist)
@@ -201,9 +307,7 @@ export function YoutubePlayer({ onTrackChange }) {
         const nextSong = freshRecs[0]
         setHistory(prev => [...prev, activeTrack])
         setQueue(freshRecs.slice(1))
-        setActiveTrack(nextSong)
-        setIsPaused(false)
-        setProgress(0)
+        handlePlaySong(nextSong)
       }
     }
   }
@@ -214,9 +318,7 @@ export function YoutubePlayer({ onTrackChange }) {
       const prevSong = history[history.length - 1]
       setHistory(prev => prev.slice(0, -1))
       setQueue(prev => [activeTrack, ...prev])
-      setActiveTrack(prevSong)
-      setIsPaused(false)
-      setProgress(0)
+      handlePlaySong(prevSong)
     }
   }
 
@@ -227,23 +329,46 @@ export function YoutubePlayer({ onTrackChange }) {
 
   // Toggle play/pause state
   const handleToggle = () => {
-    if (!playerRef.current) return
-    if (isPaused) {
-      playerRef.current.playVideo()
-      setIsPaused(false)
+    if (isAudioStream) {
+      const audio = audioPlayerRef.current
+      if (audio) {
+        if (isPaused) {
+          audio.play().catch(() => setIsPaused(true))
+          setIsPaused(false)
+        } else {
+          audio.pause()
+          setIsPaused(true)
+        }
+      }
     } else {
-      playerRef.current.pauseVideo()
-      setIsPaused(true)
+      if (!playerRef.current) return
+      if (isPaused) {
+        playerRef.current.playVideo()
+        setIsPaused(false)
+      } else {
+        playerRef.current.pauseVideo()
+        setIsPaused(true)
+      }
     }
   }
 
   // Seek callback
   const handleSeek = e => {
-    if (!duration || !playerRef.current) return
+    if (!duration) return
     const rect = e.currentTarget.getBoundingClientRect()
     const pos = Math.floor(((e.clientX - rect.left) / rect.width) * duration)
     setProgress(pos)
-    playerRef.current.seekTo(pos / 1000, true)
+
+    if (isAudioStream) {
+      const audio = audioPlayerRef.current
+      if (audio && !activeTrack.streamUrl) {
+        audio.currentTime = pos / 1000
+      }
+    } else {
+      if (playerRef.current) {
+        playerRef.current.seekTo(pos / 1000, true)
+      }
+    }
   }
 
   // Search logic
@@ -277,11 +402,29 @@ export function YoutubePlayer({ onTrackChange }) {
     }
   }, [search])
 
-  const handlePlaySong = (song) => {
+  const handlePlaySong = async (song) => {
+    let resolvedSong = { ...song }
+
+    // If it's a standard song with no YouTube ID (from iTunes fallback), resolve it
+    if (resolvedSong.id === null && !resolvedSong.streamUrl) {
+      setSearching(true)
+      setSearchError('Finding video on YouTube...')
+      try {
+        const videoId = await resolveYoutubeVideoId(song.title, song.artist)
+        resolvedSong.id = videoId
+        setSearchError('')
+      } catch (err) {
+        setSearching(false)
+        setSearchError('Connection busy, please try another song.')
+        return
+      }
+      setSearching(false)
+    }
+
     setHistory(prev => [...prev, activeTrack])
-    setActiveTrack(song)
+    setActiveTrack(resolvedSong)
     setIsPaused(false)
-    setProgress(0)
+    setProgress(song.progress_ms || 0)
     setShowSearch(false)
     setSearch('')
     setResults([])
@@ -314,7 +457,21 @@ export function YoutubePlayer({ onTrackChange }) {
           </div>
 
           {!searching && !searchError && !results.length && !search.trim() && (
-            <div className="search-status hint">Type a track name to search and match…</div>
+            <div className="search-results">
+              <div className="search-status hint" style={{ borderBottom: '1px solid #eef2e8', paddingBottom: '12px', marginBottom: '8px' }}>
+                Featured Lofi FM Stations (Quota-Free Matching):
+              </div>
+              {LOFI_STATIONS.map(station => (
+                <button key={station.id} className="search-result" onClick={() => handlePlaySong(station)}>
+                  <img src={station.art} alt="" />
+                  <div className="sr-info">
+                    <strong>{station.title}</strong>
+                    <span>{station.artist} (Live)</span>
+                  </div>
+                  <span className="sr-duration" style={{ color: '#688c58', fontWeight: 'bold' }}>LIVE</span>
+                </button>
+              ))}
+            </div>
           )}
 
           {searching && (
@@ -328,7 +485,7 @@ export function YoutubePlayer({ onTrackChange }) {
           {results.length > 0 && (
             <div className="search-results">
               {results.map(t => (
-                <button key={t.id} className="search-result" onClick={() => handlePlaySong(t)}>
+                <button key={t.id || t.itunesId} className="search-result" onClick={() => handlePlaySong(t)}>
                   <img src={t.art || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=80&q=80'} alt="" />
                   <div className="sr-info">
                     <strong>{t.name || t.title}</strong>
@@ -372,14 +529,19 @@ export function YoutubePlayer({ onTrackChange }) {
 
         {/* Progress row with live timestamps */}
         <div className="np-progress-row">
-          <span className="np-time">{fmt(progress)}</span>
+          <span className="np-time">{activeTrack.streamUrl ? 'LIVE' : fmt(progress)}</span>
           <div className="np-seek" role="slider" aria-label="Song progress" onClick={handleSeek}>
             <div className="np-fill" style={{ width: `${pct}%` }}/>
             <div className="np-thumb" style={{ left: `${pct}%` }}/>
           </div>
-          <span className="np-time np-time-end">{fmt(duration)}</span>
+          <span className="np-time np-time-end">{activeTrack.streamUrl ? '∞' : fmt(duration)}</span>
         </div>
       </section>
+      
+      {/* Credits below the player */}
+      <div className="player-credits">
+        Build by Yuvam · <a href="mailto:yuvamk6@gmail.com" style={{ color: 'inherit', textDecoration: 'underline' }}>yuvamk6@gmail.com</a>
+      </div>
     </div>
   )
 }

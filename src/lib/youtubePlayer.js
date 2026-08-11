@@ -1,5 +1,24 @@
 const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY
 
+export const LOFI_STATIONS = [
+  {
+    id: 'lofi-chill-beats',
+    title: 'Lofi Chill Radio',
+    artist: 'Chillhop Beats',
+    art: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&auto=format&fit=crop&q=80',
+    streamUrl: 'https://streaming.radio.co/s5c9b68a86/listen',
+    duration_ms: 999999999
+  },
+  {
+    id: 'lofi-relaxing-vibes',
+    title: 'Relaxing Vibes Radio',
+    artist: 'Lofi Zeno',
+    art: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=300&auto=format&fit=crop&q=80',
+    streamUrl: 'https://stream.zeno.fm/f3wvbbq152zuv',
+    duration_ms: 999999999
+  }
+]
+
 const INSTANCES = [
   'https://inv.tux.pizza',
   'https://yewtu.be',
@@ -9,7 +28,7 @@ const INSTANCES = [
 ]
 
 // Helper for Invidious fallback racing
-async function fetchWithTimeout(url, timeoutMs = 2000) {
+async function fetchWithTimeout(url, timeoutMs = 4000) {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -26,7 +45,7 @@ async function fetchWithTimeout(url, timeoutMs = 2000) {
 async function raceInvidious(path) {
   const promises = INSTANCES.map(async (instance) => {
     try {
-      return await fetchWithTimeout(`${instance}${path}`, 2000)
+      return await fetchWithTimeout(`${instance}${path}`, 2500)
     } catch (err) {
       throw err
     }
@@ -75,29 +94,19 @@ export async function searchYoutube(query) {
     if (res.ok) {
       const data = await res.json()
       
-      // For each iTunes track, find its video ID on YouTube in parallel using Invidious race
-      const trackPromises = (data.results || []).map(async (track) => {
-        try {
-          // Search for track ID
-          const ytSearch = await raceInvidious(`/api/v1/search?q=${encodeURIComponent(track.trackName + ' ' + track.artistName)}&type=video`)
-          const videoId = ytSearch?.[0]?.videoId
-          if (!videoId) return null
-          
-          return {
-            id: videoId,
-            title: track.trackName,
-            artist: track.artistName,
-            art: track.artworkUrl100.replace('100x100bb', '300x300bb'),
-            duration_ms: track.trackTimeMillis || 240000
-          }
-        } catch {
-          return null
+      // Return iTunes tracks directly with id: null, resolving YouTube video ID on-demand (on click)
+      const tracks = (data.results || []).map((track) => {
+        return {
+          id: null,
+          itunesId: String(track.trackId || `${track.trackName}-${track.artistName}`),
+          title: track.trackName,
+          artist: track.artistName,
+          art: track.artworkUrl100 ? track.artworkUrl100.replace('100x100bb', '300x300bb') : '',
+          previewUrl: track.previewUrl || '',
+          duration_ms: track.trackTimeMillis || 240000
         }
       })
-      
-      const tracks = await Promise.all(trackPromises)
-      const validTracks = tracks.filter(Boolean)
-      if (validTracks.length > 0) return validTracks
+      if (tracks.length > 0) return tracks
     }
   } catch (err) {
     console.error('[YouTube Search] iTunes fallback error:', err)
@@ -117,6 +126,69 @@ export async function searchYoutube(query) {
   } catch (err) {
     throw new Error('Search failed. Please try a different song or check API key.')
   }
+}
+
+// Resolve YouTube video ID for a song on-demand using a fast parallel race across Piped and Invidious
+export async function resolveYoutubeVideoId(title, artist) {
+  const query = `${title} ${artist}`
+  
+  const PIPED_INSTANCES = [
+    'https://piped.mha.fi',
+    'https://piped-api.hostux.net',
+    'https://pipedapi.adminforge.de',
+    'https://piped-api.lunar.icu',
+    'https://pipedapi.kavin.rocks'
+  ]
+
+  const INVIDIOUS_INSTANCES = [
+    'https://yewtu.be',
+    'https://inv.tux.pizza',
+    'https://invidious.nerdvpn.de',
+    'https://inv.vern.cc',
+    'https://invidious.no-logs.com'
+  ]
+
+  // Race Piped instances
+  const pipedPromises = PIPED_INSTANCES.map(async (instance) => {
+    const url = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`
+    try {
+      const res = await fetchWithTimeout(url, 4000)
+      const video = res.items?.find(item => item.type === 'video')
+      if (video?.videoId) return video.videoId
+      throw new Error('No video found')
+    } catch (err) {
+      throw err
+    }
+  })
+
+  try {
+    const videoId = await Promise.any(pipedPromises)
+    if (videoId) return videoId
+  } catch (err) {
+    console.warn('[Resolve YT ID] Piped race failed, trying Invidious...')
+  }
+
+  // Race Invidious instances
+  const invidiousPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
+    const url = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`
+    try {
+      const res = await fetchWithTimeout(url, 4000)
+      const videoId = res?.[0]?.videoId
+      if (videoId) return videoId
+      throw new Error('No video found')
+    } catch (err) {
+      throw err
+    }
+  })
+
+  try {
+    const videoId = await Promise.any(invidiousPromises)
+    if (videoId) return videoId
+  } catch (err) {
+    console.error('[Resolve YT ID] Invidious race failed too.')
+  }
+
+  throw new Error('Could not find video on YouTube')
 }
 
 // ── Get Suggested Song recommendations for Autoplay ─────────────────────────

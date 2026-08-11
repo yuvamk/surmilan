@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono&family=DM+Sans:wght@400;500;600;700&family=Noto+Serif+Devanagari:wght@400;500&family=Playfair+Display:ital,wght@0,500;0,600;1,500&display=swap');
 
 *{box-sizing:border-box}
+body,html{margin:0;padding:0;width:100%;height:100%}
 :root{font-family:'DM Sans',sans-serif;color:#183c31;background:#486b4e}
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
@@ -10,29 +11,56 @@
 .grain{position:absolute;inset:0;z-index:-2;opacity:.13;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.25'/%3E%3C/svg%3E")}
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
-.topbar{padding:28px 4.5vw;display:flex;align-items:center;justify-content:space-between;color:white}
+.topbar{
+  padding:28px 4.5vw;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  color:white;
+  position:relative;
+}
 .brand{color:white;text-decoration:none;display:flex;gap:10px;align-items:center;font-weight:700;font-size:21px}
 .brand>span:last-child span{font-weight:400}
 .brand-mark{border:1px solid #ffffffaa;border-radius:50%;height:29px;width:29px;display:grid;place-items:center;font-family:'Noto Serif Devanagari'}
-.top-actions,.connect-row{display:flex;gap:12px;align-items:center}
-.presence{font:11px 'DM Mono';padding:10px 14px;border:1px solid #ffffff44;border-radius:99px;background:#14412c55}
-.presence i,.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#cfff52;box-shadow:0 0 10px #cfff52;margin-right:7px}
-.status-badge{
-  font:11px 'DM Mono';padding:10px 14px;
-  border:1px solid #ffffff44;border-radius:99px;
-  background:#14412c55;color:#ffffffbc;
-  display:flex;align-items:center;gap:8px;
-}
-.status-badge.active{
-  border-color:#cfff5277;
-  color:white;
-}
 
-.pulse-dot {
-  display:inline-block;width:8px;height:8px;
-  border-radius:50%;background:#cfff52;
-  box-shadow:0 0 10px #cfff52;
-  animation:pulse 1.4s infinite ease-in-out;
+/* ── Centered Status Header ── */
+.center-status {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.95);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.2);
+}
+.center-status .status-sep {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+}
+.center-status .presence-indicator {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cfff52;
+  box-shadow: 0 0 10px #cfff52;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.center-status .pulse-indicator {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cfff52;
+  box-shadow: 0 0 10px #cfff52;
+  animation: pulse 1.4s infinite ease-in-out;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 @keyframes pulse {
@@ -42,7 +70,7 @@
 }
 
 /* ── Hero ───────────────────────────────────────────────────────────────── */
-.hero{flex:1;color:white;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px 115px}
+.hero{flex:1;color:white;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 20px 180px}
 .eyebrow{font:11px 'DM Mono';letter-spacing:.14em;display:flex;gap:7px;align-items:center;color:#eff9d2;margin:0 0 20px}
 .hero h1{font:600 clamp(56px,9vw,126px)/.87 'Playfair Display';letter-spacing:-.065em;margin:0;text-shadow:0 2px 24px #17453266}
 .hero h1 em{font-weight:500;color:#f8da8e}
@@ -77,11 +105,11 @@
 .track strong{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .track span{font-size:11px;color:#5d7767;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-.player-controls{display:flex;align-items:center;gap:2px;flex-shrink:0}
-.round-btn,.chat-head button{border:0;background:none;color:#335e48;cursor:pointer;padding:5px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .1s}
-.round-btn:hover{background:rgba(45,120,80,.12);transform:scale(1.1)}
+.player-controls{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.round-btn,.chat-head button{border:0;background:none;color:#335e48;cursor:pointer;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .1s}
+.round-btn:hover{background:rgba(45,120,80,.12);transform:scale(1.08)}
 .play-btn{background:#2a6e47;color:white;width:32px;height:32px;box-shadow:0 2px 8px #2a6e4750}
-.play-btn:hover{background:#225c3b;transform:scale(1.12)}
+.play-btn:hover{background:#225c3b;transform:scale(1.1)}
 .play-btn.loading{opacity:.55;cursor:wait}
 
 .wave{display:flex;align-items:center;gap:2px;height:25px;flex-shrink:0}
@@ -101,6 +129,15 @@
   height:4px;background:#c8d5c0;border-radius:99px;
   cursor:pointer;transition:height .15s;
 }
+.np-seek::after {
+  content: "";
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: 0;
+  right: 0;
+  cursor: pointer;
+}
 .np-seek:hover{height:6px}
 .np-fill{
   height:100%;background:#2a6e47;
@@ -111,10 +148,10 @@
   position:absolute;top:50%;transform:translate(-50%,-50%);
   width:10px;height:10px;background:#2a6e47;border-radius:50%;
   box-shadow:0 1px 4px #2a6e4760;
-  pointer-events:none;opacity:0;
-  transition:opacity .15s,transform .1s;
+  pointer-events:none;opacity:1;
+  transition:transform .1s;
 }
-.np-seek:hover .np-thumb{opacity:1;transform:translate(-50%,-50%) scale(1.2)}
+.np-seek:hover .np-thumb{transform:translate(-50%,-50%) scale(1.2)}
 
 /* ── Search panel ───────────────────────────────────────────────────────── */
 .search-panel{
@@ -206,13 +243,101 @@ footer{
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media(max-width:700px){
-  .topbar{padding:20px}
-  .presence,.setup-link{display:none}
-  .hero{padding:50px 20px 100px}
+  .topbar{
+    flex-direction:column;
+    gap:10px;
+    padding:20px;
+  }
+  .center-status {
+    position:static;
+    transform:none;
+    display:flex;
+    justify-content:center;
+    width:100%;
+    font-size:12px;
+  }
+  .presence{display:flex !important}
+  .setup-link{display:none}
+  .hero{padding:10px 20px 140px}
   .hero h1{font-size:62px}
   .now-playing{bottom:42px}
   .chat-card{height:88vh}
   .match-song{padding:13px}
   .countdown span{font-size:22px}
   footer span:first-child{display:none}
+  .stage{overflow-y:auto}
+  .player-spacer{display:block}
+}
+
+.player-credits {
+  text-align: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 8px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.player-spacer {
+  display: none;
+  height: 130px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+/* ── Device Handover Banner ───────────────────────────────────────────────── */
+.handover-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: #bd654e;
+  color: white;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  animation: slideDown 0.3s ease-out;
+}
+.hb-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hb-actions {
+  display: flex;
+  gap: 8px;
+}
+.hb-btn {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.hb-btn.primary {
+  background: white;
+  color: #bd654e;
+}
+.hb-btn.primary:hover {
+  background: #f9f5e9;
+}
+.hb-btn.secondary {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+.hb-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
 }

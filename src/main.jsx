@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Send, Sparkles, X, ArrowUpRight, Flag, LogOut, Circle } from 'lucide-react'
-import { leaveRoom, reportRoom, reserveNextMatch, supabase, getOrCreateGuestUser } from './lib/supabase'
+import { leaveRoom, reportRoom, reserveNextMatch, supabase, getOrCreateGuestUser, updateListeningPresence } from './lib/supabase'
 import { useMusicMatch } from './useMusicMatch'
 import { YoutubePlayer } from './YoutubePlayer'
 import './styles.css'
@@ -9,15 +9,45 @@ import './styles.css'
 const SHAYARI = 'तेरे सुरों में कहीं, मेरा दिल भी मुस्कुराता है।'
 
 function App() {
-  const music = useMusicMatch()
+  const progressRef = useRef(0)
+  const music = useMusicMatch(progressRef)
   const [nextRoom, setNextRoom] = useState(null)
 
   const reserveNext = async (room) => {
     try {
       if (!music.track) return
-      const next = await reserveNextMatch(room.id, music.track.id)
+      const next = await reserveNextMatch(room.id, music.track)
       if (next) setNextRoom(next)
     } catch { /* silently fall back to matching queue */ }
+  }
+
+  const handleAcceptHandover = async () => {
+    if (!music.handoverTrack) return
+    const ht = music.handoverTrack
+    
+    progressRef.current = ht.progress_ms
+    music.setTrack({
+      id: ht.id.includes(' - ') ? null : ht.id,
+      title: ht.title,
+      artist: ht.artist,
+      art: ht.art,
+      streamUrl: ht.streamUrl,
+      duration_ms: ht.duration_ms || 240000,
+      progress_ms: ht.progress_ms
+    })
+    music.setIsPlaying(true)
+    music.setHandoverTrack(null)
+
+    try {
+      await updateListeningPresence(
+        { title: ht.title, artist: ht.artist, art: ht.art, streamUrl: ht.streamUrl },
+        ht.progress_ms,
+        true,
+        music.clientDeviceId
+      )
+    } catch (e) {
+      console.warn('[Handover Takeover] DB update fail:', e)
+    }
   }
 
   // Get current state labels
@@ -29,6 +59,25 @@ function App() {
 
   return (
     <main className="stage">
+      {music.handoverTrack && (
+        <div className="handover-banner">
+          <div className="hb-content">
+            <span className="hb-icon">📱</span>
+            <span>
+              Playing <strong>{music.handoverTrack.title}</strong> on another device.
+            </span>
+          </div>
+          <div className="hb-actions">
+            <button className="hb-btn primary" onClick={handleAcceptHandover}>
+              Play here
+            </button>
+            <button className="hb-btn secondary" onClick={() => music.setHandoverTrack(null)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="wallpaper" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
@@ -37,12 +86,16 @@ function App() {
           <span className="brand-mark">स</span>
           <span>sur<span>milan</span></span>
         </a>
-        <div className="top-actions">
-          <span className="presence"><i /> {music.online || '—'} listening now</span>
-          <div className={`status-badge ${music.track && music.isPlaying && !music.room ? 'active' : ''}`}>
-            {music.track && music.isPlaying && !music.room && <span className="pulse-dot" />}
+        <div className="center-status">
+          <span>
+            <i className="presence-indicator" />
+            {music.online || '—'} listening now
+          </span>
+          <span className="status-sep">•</span>
+          <span>
+            {music.track && music.isPlaying && !music.room && <i className="pulse-indicator" />}
             {matchStatus}
-          </div>
+          </span>
         </div>
       </header>
 
@@ -60,10 +113,17 @@ function App() {
         </p>
       </section>
 
-      <YoutubePlayer onTrackChange={(t, playing) => {
-        music.setTrack(t)
-        music.setIsPlaying(Boolean(playing))
-      }} />
+      <YoutubePlayer 
+        progressRef={progressRef}
+        forcePause={music.forcePause}
+        onForcePauseCleared={music.clearForcePause}
+        onTrackChange={(t, playing) => {
+          music.setTrack(t)
+          music.setIsPlaying(Boolean(playing))
+        }} 
+      />
+
+      <div className="player-spacer" />
 
       <footer>
         <span>Made for the songs you cannot explain.</span>

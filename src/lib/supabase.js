@@ -42,14 +42,56 @@ export function getOrCreateGuestUser() {
   return guestUser
 }
 
-export async function updateListeningPresence(track) {
+export async function ensureAuth() {
+  if (!supabase) return null
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session) return session.user
+
+  try {
+    const { data: { user }, error } = await supabase.auth.signInAnonymously()
+    if (error) {
+      console.warn('[Supabase Auth] Anonymous sign-in failed:', error.message)
+      return null
+    }
+    return user
+  } catch (err) {
+    console.warn('[Supabase Auth] Failed to sign in anonymously:', err)
+    return null
+  }
+}
+
+export function getNormalizeMatchKey(title, artist) {
+  if (!title || !artist) return ''
+  return `${title.toLowerCase().trim()} - ${artist.toLowerCase().trim()}`
+    .replace(/[·•]/g, '-')
+    .replace(/\s+/g, ' ')
+}
+
+export async function fetchDevicePresence(userId) {
+  if (!supabase) return null
+  const { data, error } = await supabase.from('listening_presence')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+  if (error && error.code !== 'PGRST116') {
+    console.error('[Supabase Fetch Presence] Error:', error)
+  }
+  return data || null
+}
+
+export async function updateListeningPresence(track, progressMs = 0, isPlaying = false, deviceId = '') {
   if (!supabase) return
   let userId, displayName
   
   const { data: { user } } = await supabase.auth.getUser()
   if (user) {
     userId = user.id
-    displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'music lover'
+    displayName = user.user_metadata?.full_name || user.email?.split('@')[0]
+    if (!displayName) {
+      // For anonymous users, use guest display name from localStorage for consistency
+      const guest = getOrCreateGuestUser()
+      displayName = guest.display_name
+    }
   } else {
     const guest = getOrCreateGuestUser()
     userId = guest.id
@@ -59,10 +101,19 @@ export async function updateListeningPresence(track) {
   const profile = await supabase.from('profiles').upsert({ id: userId, display_name: displayName })
   if (profile.error) throw profile.error
 
+  const trackKey = getNormalizeMatchKey(track.title, track.artist)
+
   const { error } = await supabase.from('listening_presence').upsert({ 
     user_id: userId, 
     provider: 'youtube', 
-    track_id: track.id, 
+    track_id: trackKey, 
+    device_id: deviceId,
+    progress_ms: progressMs,
+    is_playing: isPlaying,
+    track_title: track.title,
+    track_artist: track.artist,
+    track_art: track.art,
+    stream_url: track.streamUrl || null,
     updated_at: new Date().toISOString() 
   })
   if (error) throw error
@@ -78,20 +129,26 @@ export async function reportRoom(roomId, reason = 'User report') {
   await supabase.from('room_reports').insert({ room_id: roomId, reason })
 }
 
-export async function findMatch(trackId) {
+export async function findMatch(track) {
   let userId, displayName
   const { data: { user } } = await supabase.auth.getUser()
   if (user) {
     userId = user.id
-    displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'music lover'
+    displayName = user.user_metadata?.full_name || user.email?.split('@')[0]
+    if (!displayName) {
+      const guest = getOrCreateGuestUser()
+      displayName = guest.display_name
+    }
   } else {
     const guest = getOrCreateGuestUser()
     userId = guest.id
     displayName = guest.display_name
   }
 
+  const trackKey = getNormalizeMatchKey(track.title, track.artist)
+
   const { data, error } = await supabase.rpc('match_listener', { 
-    p_track_id: trackId,
+    p_track_id: trackKey,
     p_user_id: userId,
     p_display_name: displayName
   })
@@ -99,7 +156,7 @@ export async function findMatch(trackId) {
   return data?.[0] || null
 }
 
-export async function reserveNextMatch(roomId, trackId) {
+export async function reserveNextMatch(roomId, track) {
   let userId
   const { data: { user } } = await supabase.auth.getUser()
   if (user) {
@@ -109,9 +166,11 @@ export async function reserveNextMatch(roomId, trackId) {
     userId = guest.id
   }
 
+  const trackKey = getNormalizeMatchKey(track.title, track.artist)
+
   const { data, error } = await supabase.rpc('reserve_next_match', { 
     p_room_id: roomId, 
-    p_track_id: trackId,
+    p_track_id: trackKey,
     p_user_id: userId
   })
   if (error) throw error
