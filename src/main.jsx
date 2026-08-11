@@ -21,7 +21,7 @@ function App() {
   }
 
   // Get current state labels
-  const matchStatus = !music.track 
+  const matchStatus = !music.track || !music.isPlaying
     ? 'Play a song to match' 
     : music.room 
       ? 'Matched!' 
@@ -39,8 +39,8 @@ function App() {
         </a>
         <div className="top-actions">
           <span className="presence"><i /> {music.online || '—'} listening now</span>
-          <div className={`status-badge ${music.track && !music.room ? 'active' : ''}`}>
-            {music.track && !music.room && <span className="pulse-dot" />}
+          <div className={`status-badge ${music.track && music.isPlaying && !music.room ? 'active' : ''}`}>
+            {music.track && music.isPlaying && !music.room && <span className="pulse-dot" />}
             {matchStatus}
           </div>
         </div>
@@ -54,13 +54,16 @@ function App() {
 
         
         <p className="hint">
-          {!music.track 
-            ? 'Search for any song in the player below, play it, and we will automatically find your song twin.' 
-            : 'We are searching for someone listening to the very same song. Hang tight!'}
+          {!music.track || !music.isPlaying
+            ? 'Search for any song in the player below, hit play, and we will automatically find your song twin.' 
+            : 'You are listening! We are searching for someone listening to the very same song. Hang tight!'}
         </p>
       </section>
 
-      <YoutubePlayer onTrackChange={t => music.setTrack(t)} />
+      <YoutubePlayer onTrackChange={(t, playing) => {
+        music.setTrack(t)
+        music.setIsPlaying(Boolean(playing))
+      }} />
 
       <footer>
         <span>Made for the songs you cannot explain.</span>

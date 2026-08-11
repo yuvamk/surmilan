@@ -161,10 +161,11 @@ export function YoutubePlayer({ onTrackChange }) {
     }
   }, [activeTrack.id])
 
-  // Propagate track change to main app (for matching logic)
+  // Propagate track and playback state change to main app (for matching logic)
   useEffect(() => {
-    onTrackChange?.(activeTrack)
-  }, [activeTrack])
+    onTrackChange?.(activeTrack, !isPaused)
+  }, [activeTrack, isPaused])
+
 
   // Progress ticker functions
   const startProgressTicker = () => {

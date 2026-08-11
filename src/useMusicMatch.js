@@ -3,6 +3,7 @@ import { findMatch, supabase, updateListeningPresence } from './lib/supabase'
 
 export function useMusicMatch() {
   const [track, setTrack] = useState(null)
+  const [isPlaying, setIsPlaying] = useState(false)
   const [room, setRoom] = useState(null)
   const [error, setError] = useState('')
   const [online, setOnline] = useState(0)
@@ -16,14 +17,14 @@ export function useMusicMatch() {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  // 2. Fully Automatic Matching: Polls for matches in background when a track is active
+  // 2. Fully Automatic Matching: Only matches when track is actively PLAYING
   useEffect(() => {
-    if (!track || room) return
+    if (!track || !isPlaying || room) return
 
     const runMatch = async () => {
       try {
         setError('')
-        // Post presence
+        // Post presence only for actively playing listener
         await updateListeningPresence(track)
         // Check for song twins
         const found = await findMatch(track.id)
@@ -32,18 +33,18 @@ export function useMusicMatch() {
         }
       } catch (e) {
         console.error('[Auto Match] Error:', e)
-        // Don't interrupt user play, just log or set transient match error if critical
       }
     }
 
     // Run matching immediately
     runMatch()
 
-    // Poll matching state every 8 seconds
+    // Poll matching state every 8 seconds while playing
     const interval = setInterval(runMatch, 8000)
 
     return () => clearInterval(interval)
-  }, [track, room])
+  }, [track, isPlaying, room])
 
-  return { track, setTrack, room, setRoom, error, online }
+  return { track, setTrack, isPlaying, setIsPlaying, room, setRoom, error, online }
 }
+
