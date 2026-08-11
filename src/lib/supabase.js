@@ -61,10 +61,18 @@ export async function ensureAuth() {
 }
 
 export function getNormalizeMatchKey(title, artist) {
-  if (!title || !artist) return ''
-  return `${title.toLowerCase().trim()} - ${artist.toLowerCase().trim()}`
-    .replace(/[·•]/g, '-')
-    .replace(/\s+/g, ' ')
+  const clean = (str) => {
+    if (!str) return ''
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\b(official|audio|video|lyrics?|hd|4k|full\s*song|hq|music\s*video|lyric\s*video)\b/gi, '')
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+  return `${clean(title)}|${clean(artist)}`
 }
 
 export async function fetchDevicePresence(userId) {

@@ -1,10 +1,11 @@
-const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY
+import { supabase } from './supabase'
 
 export const LOFI_STATIONS = [
   {
     id: 'lofi-chill-beats',
     title: 'Lofi Chill Radio',
     artist: 'Chillhop Beats',
+    normalizedKey: 'lofi chill radio|chillhop beats',
     art: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&auto=format&fit=crop&q=80',
     streamUrl: 'https://streaming.radio.co/s5c9b68a86/listen',
     duration_ms: 999999999
@@ -13,6 +14,7 @@ export const LOFI_STATIONS = [
     id: 'lofi-relaxing-vibes',
     title: 'Relaxing Vibes Radio',
     artist: 'Lofi Zeno',
+    normalizedKey: 'relaxing vibes radio|lofi zeno',
     art: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=300&auto=format&fit=crop&q=80',
     streamUrl: 'https://stream.zeno.fm/f3wvbbq152zuv',
     duration_ms: 999999999
@@ -26,6 +28,23 @@ const INSTANCES = [
   'https://inv.vern.cc',
   'https://invidious.no-logs.com'
 ]
+
+// Normalizes song titles and artist names to match cross-platform and for DB key cache
+export function normalizeTrackKey(title, artist) {
+  const clean = (str) => {
+    if (!str) return ''
+    return str
+      .normalize('NFD') // Unicode normalization
+      .replace(/[\u0300-\u036f]/g, '') // remove accent marks
+      .toLowerCase()
+      // Remove common noise words
+      .replace(/\b(official|audio|video|lyrics?|hd|4k|full\s*song|hq|music\s*video|lyric\s*video)\b/gi, '')
+      .replace(/[^\w\s]/g, ' ') // replace punctuation with spaces
+      .replace(/\s+/g, ' ') // collapse repeated whitespace
+      .trim()
+  }
+  return `${clean(title)}|${clean(artist)}`
+}
 
 // Helper for Invidious fallback racing
 async function fetchWithTimeout(url, timeoutMs = 4000) {
@@ -63,75 +82,107 @@ async function raceInvidious(path) {
 export async function searchYoutube(query) {
   if (!query.trim()) return []
 
-  // Method 1: Use official Google YouTube API if key is supplied (blazing fast & stable)
-  if (apiKey) {
-    try {
-      console.log('[YouTube API] Searching using official Google API...')
-      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=8&q=${encodeURIComponent(query)}&type=video&videoCategoryId=10&key=${apiKey}`
-      const res = await fetch(url)
-      if (res.ok) {
-        const data = await res.json()
-        return (data.items || []).map(item => ({
-          id: item.id.videoId,
-          title: item.snippet.title,
-          artist: item.snippet.channelTitle,
-          art: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-          duration_ms: 240000 // duration retrieved on load by iframe player
-        }))
-      } else {
-        const errorData = await res.json().catch(() => ({}))
-        console.error('[YouTube API] Google Error response:', errorData)
-      }
-    } catch (err) {
-      console.error('[YouTube API] Google fetch error:', err)
-    }
-  }
-
-  // Method 2: Fall back to iTunes Music search (keyless, 100% stable, CORS-free, ultra-fast)
-  console.log('[YouTube Search] Falling back to iTunes search...')
+  console.log('[YouTube Search] Querying iTunes music database...')
   try {
     const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=8`)
     if (res.ok) {
       const data = await res.json()
       
-      // Return iTunes tracks directly with id: null, resolving YouTube video ID on-demand (on click)
       const tracks = (data.results || []).map((track) => {
+        const normKey = normalizeTrackKey(track.trackName, track.artistName)
         return {
-          id: null,
+          id: null, // to be resolved on play click
           itunesId: String(track.trackId || `${track.trackName}-${track.artistName}`),
           title: track.trackName,
           artist: track.artistName,
+          normalizedKey: normKey,
           art: track.artworkUrl100 ? track.artworkUrl100.replace('100x100bb', '300x300bb') : '',
-          previewUrl: track.previewUrl || '',
           duration_ms: track.trackTimeMillis || 240000
         }
       })
-      if (tracks.length > 0) return tracks
+
+      if (tracks.length > 0 && supabase) {
+        // Query the database cache to see which tracks are already resolved
+        const keys = tracks.map(t => t.normalizedKey)
+        const { data: cached } = await supabase
+          .from('music_tracks')
+          .select('normalized_key, youtube_video_id')
+          .in('normalized_key', keys)
+
+        if (cached && cached.length > 0) {
+          const cacheMap = {}
+          cached.forEach(row => {
+            if (row.youtube_video_id) {
+              cacheMap[row.normalized_key] = row.youtube_video_id
+            }
+          })
+          tracks.forEach(track => {
+            if (cacheMap[track.normalizedKey]) {
+              track.id = cacheMap[track.normalizedKey]
+            }
+          })
+        }
+      }
+      return tracks
     }
   } catch (err) {
-    console.error('[YouTube Search] iTunes fallback error:', err)
+    console.error('[YouTube Search] iTunes search error:', err)
   }
 
-  // Method 3: Absolute fallback directly search Invidious
+  // Absolute fallback: search Invidious directly
   console.log('[YouTube Search] Falling back directly to Invidious race...')
   try {
     const data = await raceInvidious(`/api/v1/search?q=${encodeURIComponent(query)}&type=video`)
-    return (data || []).slice(0, 8).map(item => ({
-      id: item.videoId,
-      title: item.title,
-      artist: item.author,
-      art: item.videoThumbnails?.find(t => t.quality === 'medium')?.url || item.videoThumbnails?.[0]?.url || '',
-      duration_ms: (item.lengthSeconds || 240) * 1000
-    }))
+    return (data || []).slice(0, 8).map(item => {
+      const normKey = normalizeTrackKey(item.title, item.author)
+      return {
+        id: item.videoId,
+        title: item.title,
+        artist: item.author,
+        normalizedKey: normKey,
+        art: item.videoThumbnails?.find(t => t.quality === 'medium')?.url || item.videoThumbnails?.[0]?.url || '',
+        duration_ms: (item.lengthSeconds || 240) * 1000
+      }
+    })
   } catch (err) {
-    throw new Error('Search failed. Please try a different song or check API key.')
+    throw new Error('Search failed. Please try a different song.')
   }
 }
 
-// Resolve YouTube video ID for a song on-demand using a fast parallel race across Piped and Invidious
-export async function resolveYoutubeVideoId(title, artist) {
+// Resolve YouTube video ID for a song on-demand (first from serverless cache, then races fallbacks)
+export async function resolveYoutubeVideoId(title, artist, normalizedKey) {
+  if (!normalizedKey) {
+    normalizedKey = normalizeTrackKey(title, artist)
+  }
+
+  console.log(`[Resolve YT ID] Requesting serverless API resolution: "${title}" by "${artist}"`)
+  try {
+    const res = await fetch('/api/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, artist, normalizedKey })
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      if (data.youtubeVideoId) {
+        console.log(`[Resolve YT ID] Serverless API resolved to: ${data.youtubeVideoId}`)
+        return data.youtubeVideoId
+      }
+    } else {
+      const err = await res.json().catch(() => ({}))
+      console.warn('[Resolve YT ID] Serverless API error response:', err)
+    }
+  } catch (err) {
+    console.warn('[Resolve YT ID] Serverless API error, calling client race...', err)
+  }
+
+  // Client-side fallback race across Piped and Invidious
+  return raceClientFallbacks(title, artist)
+}
+
+async function raceClientFallbacks(title, artist) {
   const query = `${title} ${artist}`
-  
   const PIPED_INSTANCES = [
     'https://piped.mha.fi',
     'https://piped-api.hostux.net',
@@ -148,7 +199,7 @@ export async function resolveYoutubeVideoId(title, artist) {
     'https://invidious.no-logs.com'
   ]
 
-  // Race Piped instances
+  console.log('[Resolve YT ID] Racing client-side Piped mirrors...')
   const pipedPromises = PIPED_INSTANCES.map(async (instance) => {
     const url = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`
     try {
@@ -165,10 +216,10 @@ export async function resolveYoutubeVideoId(title, artist) {
     const videoId = await Promise.any(pipedPromises)
     if (videoId) return videoId
   } catch (err) {
-    console.warn('[Resolve YT ID] Piped race failed, trying Invidious...')
+    console.warn('[Resolve YT ID] Client Piped race failed, trying Invidious...')
   }
 
-  // Race Invidious instances
+  console.log('[Resolve YT ID] Racing client-side Invidious mirrors...')
   const invidiousPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
     const url = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`
     try {
@@ -185,73 +236,51 @@ export async function resolveYoutubeVideoId(title, artist) {
     const videoId = await Promise.any(invidiousPromises)
     if (videoId) return videoId
   } catch (err) {
-    console.error('[Resolve YT ID] Invidious race failed too.')
+    console.error('[Resolve YT ID] Client Invidious race failed too.')
   }
 
-  throw new Error('Could not find video on YouTube')
+  throw new Error('Could not resolve video on YouTube')
 }
 
 // ── Get Suggested Song recommendations for Autoplay ─────────────────────────
 
-export async function getRecommendations(videoId, title = '', artist = '') {
-  if (!videoId) return []
-
-  // Method 1: Use official Google YouTube API to search for other songs by the same artist
-  if (apiKey && artist) {
-    try {
-      console.log(`[YouTube Recs] Fetching similar tracks for artist: ${artist}...`)
-      // Search for the artist's tracks on YouTube
-      const query = `${artist} songs`
-      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=8&q=${encodeURIComponent(query)}&type=video&videoCategoryId=10&key=${apiKey}`
-      const res = await fetch(url)
-      if (res.ok) {
-        const data = await res.json()
-        return (data.items || [])
-          .filter(item => item.id.videoId !== videoId) // filter out current song
-          .map(item => ({
-            id: item.id.videoId,
-            title: item.snippet.title,
-            artist: item.snippet.channelTitle,
-            art: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-            duration_ms: 240000
-          }))
-      }
-    } catch (err) {
-      console.error('[YouTube Recs] Google API fetch error:', err)
-    }
+export async function getRecommendations(normalizedKey, title = '', artist = '') {
+  if (!normalizedKey) {
+    normalizedKey = normalizeTrackKey(title, artist)
   }
 
-  // Method 2: Fallback to Invidious recommendations
+  console.log(`[Recommendations] Pulling recommendations for: ${normalizedKey}`)
   try {
-    const data = await raceInvidious(`/api/v1/videos/${videoId}`)
-    const recs = data?.recommendedVideos || []
-    return recs.map(item => ({
-      id: item.videoId,
-      title: item.title,
-      artist: item.author,
-      art: item.videoThumbnails?.find(t => t.quality === 'medium')?.url || item.videoThumbnails?.[0]?.url || '',
-      duration_ms: (item.lengthSeconds || 240) * 1000
-    }))
-  } catch (e) {
-    // Method 3: Absolute fallback - search general popular songs
-    if (apiKey) {
-      try {
-        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=lodi%20songs%20lofi%20music&type=video&videoCategoryId=10&key=${apiKey}`
-        const res = await fetch(url)
-        if (res.ok) {
-          const data = await res.json()
-          return (data.items || []).map(item => ({
-            id: item.id.videoId,
-            title: item.snippet.title,
-            artist: item.snippet.channelTitle,
-            art: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-            duration_ms: 240000
-          }))
-        }
-      } catch {}
+    const res = await fetch(`/api/recommend?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}&normalizedKey=${encodeURIComponent(normalizedKey)}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data && data.length > 0) {
+        return data
+      }
     }
-    return []
+  } catch (err) {
+    console.error('[Recommendations] API call failed:', err)
   }
+
+  // Client-side fallback recommendations
+  return [
+    {
+      id: 'lofi-chill-beats',
+      normalizedKey: 'lofi chill radio|chillhop beats',
+      title: 'Lofi Chill Radio',
+      artist: 'Chillhop Beats',
+      art: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&auto=format&fit=crop&q=80',
+      duration_ms: 240000
+    },
+    {
+      id: 'lofi-relaxing-vibes',
+      normalizedKey: 'relaxing vibes radio|lofi zeno',
+      title: 'Relaxing Vibes Radio',
+      artist: 'Lofi Zeno',
+      art: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=300&auto=format&fit=crop&q=80',
+      duration_ms: 240000
+    }
+  ]
 }
 
 // ── YouTube IFrame SDK Loader ──────────────────────────────────────────────

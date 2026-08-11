@@ -6,6 +6,7 @@ const DEMO = {
   id: 'dQw4w9WgXcQ',
   title: 'Iktara',
   artist: 'Amit Trivedi · Kavita Seth',
+  normalizedKey: 'iktara|amit trivedi kavita seth',
   art: 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=300&q=85',
   duration_ms: 240000,
 }
@@ -163,7 +164,7 @@ export function YoutubePlayer({ onTrackChange, progressRef, forcePause, onForceP
     })
 
     // Fetch related recommendations to build autoplay list
-    getRecommendations(activeTrack.id, activeTrack.title, activeTrack.artist).then((recs) => {
+    getRecommendations(activeTrack.normalizedKey, activeTrack.title, activeTrack.artist).then((recs) => {
       if (active) {
         if (recs.length > 0) {
           setQueue(recs)
@@ -302,7 +303,7 @@ export function YoutubePlayer({ onTrackChange, progressRef, forcePause, onForceP
       handlePlaySong(nextSong)
     } else {
       // If queue is completely dry, query new recommendations for current artist to keep playing
-      const freshRecs = await getRecommendations(activeTrack.id, activeTrack.title, activeTrack.artist)
+      const freshRecs = await getRecommendations(activeTrack.normalizedKey, activeTrack.title, activeTrack.artist)
       if (freshRecs.length > 0) {
         const nextSong = freshRecs[0]
         setHistory(prev => [...prev, activeTrack])
@@ -410,7 +411,7 @@ export function YoutubePlayer({ onTrackChange, progressRef, forcePause, onForceP
       setSearching(true)
       setSearchError('Finding video on YouTube...')
       try {
-        const videoId = await resolveYoutubeVideoId(song.title, song.artist)
+        const videoId = await resolveYoutubeVideoId(song.title, song.artist, song.normalizedKey)
         resolvedSong.id = videoId
         setSearchError('')
       } catch (err) {
